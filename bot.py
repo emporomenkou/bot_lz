@@ -2,7 +2,7 @@ import keyring
 import logging
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
-from aiogram.filters import CommandStart
+from aiogram.filters import CommandStart, or_f
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -35,7 +35,7 @@ keyboard2 = ReplyKeyboardMarkup(keyboard=[[nazad]],
                                     )
 b1 = KeyboardButton(text="погода")
 b2 = KeyboardButton(text="котеки")
-b3 = KeyboardButton(text="егор крит")
+b3 = KeyboardButton(text="конвертер валют")
 b4 = KeyboardButton(text='/inline')
 keyboard1 = ReplyKeyboardMarkup(keyboard=
                                    [[b1, b2],
@@ -98,7 +98,23 @@ async def weather(city: str):
     return text
 
 
-@dp.message(CommandStart())
+async def currency_convert(s: str):
+    parts = s.upper().split()
+    if len(parts) < 3:
+        return "эмммм"
+    url = f"https://v6.exchangerate-api.com/v6/3f90a64e7451ec50582d54b4/pair/{parts[1]}/{parts[2]}"
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url=url) as response:
+            data = await response.json()
+    if data.get("result") == "success":
+        rate = data["conversion_rate"]
+        print(parts, rate)
+        return f"{float(parts[0]) * rate} {parts[2]}"
+    else:
+        return r"data.get('result') != success"
+
+
+@dp.message(or_f(CommandStart(), F.text == "назад"))
 async def start_handler(message: Message):
     user_name = message.from_user.full_name
     
@@ -108,17 +124,23 @@ async def start_handler(message: Message):
 
 
  
-@dp.message(F.text.in_(['погода', 'котеки', "апи3", "апи4"]))
+@dp.message(F.text.in_(['погода', 'котеки', "конвертер валют", "апи4"]))
 async def button_handler(message : Message, state: FSMContext):
     button = message.text
 
-    if button not in ['котеки', 'егор крит']:
+    if button in ['погода', 'конвертер валют']:
         await state.update_data(action=button)
         await state.set_state(InputState.waiting_for_data)
     if button == "погода":
-
         await message.answer(
-            text="Введите корректное название города на русском языке: ", reply_markup=keyboard2
+            text="Введите корректное название города на русском языке: ",
+              reply_markup=keyboard2
+        )
+    elif button == "конвертер валют":
+        await message.answer(
+            text=f"Введите параметры конвертации.\nпример для перевода 100 USD в BYN:\n<b>100 usd byn</b>",
+              parse_mode="HTML",
+              reply_markup=keyboard2
         )
         
 
@@ -145,30 +167,31 @@ async def process_data(message: Message, state: FSMContext):
     action = data.get("action")
     user_input = message.text
 
-    if action == "погода" and user_input != "назад":
+    if user_input == "назад":
+        await message.answer(text="Возвращаемся в меню...", reply_markup=keyboard1)
+        await state.clear()
+        return
+
+    elif action == "погода":
         text = await weather(user_input)
         await message.answer(text, parse_mode="HTML")
 
 
-    # elif action == "кнопка3":
-    #     result = await your_third_api_function(user_input)
-    #     await message.answer(result)
+    elif action == "конвертер валют":
+        result = await currency_convert(user_input)
+        await message.answer(result, parse_mode="HTML")
 
     # elif action == "кнопка4":
     #     result = await your_fourth_api_function(user_input)
     #     await message.answer(result)
-    if user_input == "назад":
-        await message.answer(text="Возвращаемся в меню...", reply_markup=keyboard1)
-        await state.clear()
 
-@dp.message(~F.text.in_(["погода", "котеки", "апи3", "апи4"]))
+
+@dp.message(~F.text.in_(["погода", "котеки", "конвертер валют", "апи4"]))
 async def other_messages(message: Message, state: FSMContext):
     current_state = await state.get_state()
     
-    if current_state is not None:
-        return
-    
-    await message.answer("нормально общайся")
+    if current_state is None:
+        await message.answer("нормально общайся")
 
 
 

@@ -1,16 +1,33 @@
 import keyring
 import logging
-from aiogram import Bot, Dispatcher, types, F
+import ssl
+from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.filters import CommandStart, or_f
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.client.session.aiohttp import AiohttpSession
 import asyncio
 import aiohttp
 
-BOT_TOKEN = keyring.get_password(r't.me/krivoobot', 'token')
-bot = Bot(token=BOT_TOKEN)
+class DisabledSSLAiohttpSession(AiohttpSession):
+    async def create_session(self) -> aiohttp.ClientSession:
+        if self._session is None or self._session.closed:
+
+            ssl_context = ssl.create_default_context()
+            ssl_context.check_hostname = False
+            ssl_context.verify_mode = ssl.CERT_NONE
+
+            connector = aiohttp.TCPConnector(ssl=ssl_context)
+            self._session = aiohttp.ClientSession(
+                connector=connector,
+                json_serialize=self.json_dumps, 
+            )
+        return self._session
+
+
+
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 logging.basicConfig(level=logging.INFO)
@@ -36,7 +53,7 @@ keyboard2 = ReplyKeyboardMarkup(keyboard=[[nazad]],
 b1 = KeyboardButton(text="погода")
 b2 = KeyboardButton(text="котеки")
 b3 = KeyboardButton(text="конвертер валют")
-b4 = KeyboardButton(text='/inline')
+b4 = KeyboardButton(text='смешнявка')
 keyboard1 = ReplyKeyboardMarkup(keyboard=
                                    [[b1, b2],
                                     [b3, b4]
@@ -50,7 +67,6 @@ class InputState(StatesGroup):
 
 async def weather(city: str):
     async with aiohttp.ClientSession() as session:
-        # 1. Геокодинг
         geo_url = "https://geocoding-api.open-meteo.com/v1/search"
         geo_params = {
             "name": city,
@@ -100,7 +116,7 @@ async def weather(city: str):
 
 async def currency_convert(s: str):
     parts = s.upper().split()
-    if len(parts) < 3:
+    if len(parts) != 3:
         return "эмммм"
     url = f"https://v6.exchangerate-api.com/v6/3f90a64e7451ec50582d54b4/pair/{parts[1]}/{parts[2]}"
     async with aiohttp.ClientSession() as session:
@@ -143,7 +159,6 @@ async def button_handler(message : Message, state: FSMContext):
               reply_markup=keyboard2
         )
         
-
     elif button == "котеки":
         async with aiohttp.ClientSession() as session:
             async with session.get(r"https://api.thecatapi.com/v1/images/search") as response:
@@ -155,12 +170,13 @@ async def button_handler(message : Message, state: FSMContext):
         await message.answer_photo(photo=cat_url,
                                     caption='randomny kotek'
                                     )
-    elif button == "егор крит":
-        await message.answer_audio(
-            audio=r"https://cdn8.sefon.pro/prev/NSTDWk3L8ZyIuCTZF0FCwg/1789151074/1056/%D0%95%D0%B3%D0%BE%D1%80%20%D0%9A%D1%80%D0%B8%D0%B4%20-%20%D0%9C%D0%B0%D0%BB%D0%BE%202.0%20%28192kbps%29.mp3",
-            caption="не"
-        )   
-
+    elif button == "смешнявка":
+        url = "https://anekdot.me"
+        async with aiohttp.ClientSession as session:
+            async with session.get(url, ssl=False) as response:
+                data = await response.json()
+                text = data["text"]
+                await message.answer(text=text)
 @dp.message(InputState.waiting_for_data)
 async def process_data(message: Message, state: FSMContext):
     data = await state.get_data()
@@ -181,12 +197,8 @@ async def process_data(message: Message, state: FSMContext):
         result = await currency_convert(user_input)
         await message.answer(result, parse_mode="HTML")
 
-    # elif action == "кнопка4":
-    #     result = await your_fourth_api_function(user_input)
-    #     await message.answer(result)
 
-
-@dp.message(~F.text.in_(["погода", "котеки", "конвертер валют", "апи4"]))
+@dp.message(~F.text.in_(["погода", "котеки", "конвертер валют", "смешнявка"]))
 async def other_messages(message: Message, state: FSMContext):
     current_state = await state.get_state()
     
@@ -194,9 +206,12 @@ async def other_messages(message: Message, state: FSMContext):
         await message.answer("нормально общайся")
 
 
-
-
 async def main():
+    session = DisabledSSLAiohttpSession()
+
+    BOT_TOKEN = keyring.get_password(r't.me\krivoobot', 'token')
+    bot = Bot(token=BOT_TOKEN, session=session)
+
     await dp.start_polling(bot)
 
 if __name__ == "__main__":

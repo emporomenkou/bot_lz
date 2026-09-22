@@ -138,7 +138,6 @@ async def start_handler(message: Message):
                         "Выбери действие:", reply_markup=keyboard1
                         )
 
-
  
 @dp.message(F.text.in_(['погода', 'котеки', "конвертер валют", "апи4"]))
 async def button_handler(message : Message, state: FSMContext):
